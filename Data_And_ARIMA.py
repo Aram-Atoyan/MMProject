@@ -1,3 +1,4 @@
+import numpy as np
 import yfinance as yf
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -24,3 +25,19 @@ for stock, dfStock in data_dictionary.items():
 
 for stock, df in data_dictionary.items():
     df.to_csv(f"data/{stock}.csv")
+
+
+
+def get_arima_predictions():
+    """
+    Train ARIMA, generate predictions on the test set,
+    and return (y_true, y_pred, dates) as numpy arrays.
+    """
+    # TODO: replace this with real ARIMA logic
+    # Example dummy data:
+    n = 100
+    dates = np.arange(n)  # or real datetime array
+    y_true = np.sin(np.linspace(0, 4 * np.pi, n))  # dummy true
+    y_pred = y_true + 0.1 * np.random.randn(n)     # dummy pred
+
+    return y_true, y_pred, dates
