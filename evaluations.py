@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 from Data_And_ARIMA import get_arima_predictions
-from  import get_lstm_predictions
+from ltsm import get_lstm_predictions
 
 
 def mse(y_true, y_pred):
@@ -88,8 +88,6 @@ def main():
     if len(dates_arima) != len(dates_lstm):
         raise ValueError("Dates arrays have different lengths!")
 
-    # If they are numpy datetime64 or something similar, array_equal should work;
-    # if they are lists, you can cast to np.array first.
     if not np.array_equal(np.array(dates_arima), np.array(dates_lstm)):
         raise ValueError("Dates from ARIMA and LSTM do not match!")
 

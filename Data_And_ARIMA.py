@@ -41,3 +41,20 @@ def get_arima_predictions():
     y_pred = y_true + 0.1 * np.random.randn(n)     # dummy pred
 
     return y_true, y_pred, dates
+
+
+def get_arima_params():
+    """
+    Return basic ARIMA info for MM analysis.
+    Example for ARIMA(p, d, q) with AR(p) part:
+
+    Returns:
+        phi : np.ndarray of shape (p,)
+            AR coefficients [phi1, phi2, ..., phip].
+        c   : float
+            Constant term in the AR part (on the differenced series).
+        d   : int
+            Differencing order used.
+    """
+    phi,c,d =0,0,0
+    return phi, c, d
