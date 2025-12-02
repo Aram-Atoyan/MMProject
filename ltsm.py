@@ -187,7 +187,7 @@ def get_lstm_predictions(ticker: str = "AAPL", min_history: int = 4):
         # we want prediction for y_true[t], which is pred_unscal
         y_pred[t] = pred_unscaled[t - 1]
 
-    return dates, y_true, y_pred
+    return  y_true, y_pred, dates
 
 
 
