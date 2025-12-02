@@ -11,7 +11,6 @@ TICKER_TO_FILE = {
     "MSFT": "data/MSFT.csv",
     "TSLA": "data/TSLA.csv",
 }
-TICKER = "AAPL"
 ARIMA_ORDER = (1, 1, 1)
 
 def load_stock_csv(path):
@@ -163,8 +162,8 @@ def plot_acf_pacf_all():
         plt.tight_layout()
         plt.show()
 
-def get_arima_predictions():
-    df = load_stock_csv(f"data/{TICKER}.csv")
+def get_arima_predictions(ticker):
+    df = load_stock_csv(f"data/{ticker}.csv")
     series_log = df["log_price"]
     series_price = df["ClosePrice"]
     dates = df.index.to_numpy()
