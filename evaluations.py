@@ -75,43 +75,51 @@ def plot_residuals(dates, y_true, y_arima, y_lstm):
     plt.tight_layout()
     plt.show()
 
-
 def main():
-    for ticker in ["AAPL",'AMZN','GOOGL','MSFT','TSLA']:
+    tickers = ["AAPL", "AMZN", "GOOGL", "MSFT", "TSLA"]
+
+    for ticker in tickers:
+        print(f"\n==============================")
+        print(f"Results for {ticker}")
+        print(f"==============================")
+
+        # Get predictions from both models for this ticker
         y_true_arima, y_arima, dates_arima = get_arima_predictions(ticker)
         y_true_lstm,  y_lstm,  dates_lstm  = get_lstm_predictions(ticker)
 
-    # Basic sanity checks
+        # Basic sanity checks
         if not np.allclose(y_true_arima, y_true_lstm):
-            raise ValueError("y_true from ARIMA and LSTM do not match!")
+            raise ValueError(f"y_true from ARIMA and LSTM do not match for {ticker}!")
 
         if len(dates_arima) != len(dates_lstm):
-             raise ValueError("Dates arrays have different lengths!")
+            raise ValueError(f"Dates arrays have different lengths for {ticker}!")
 
         if not np.array_equal(np.array(dates_arima), np.array(dates_lstm)):
-              raise ValueError("Dates from ARIMA and LSTM do not match!")
+            raise ValueError(f"Dates from ARIMA and LSTM do not match for {ticker}!")
 
-        y_true = y_true_lstm
+        # Use the common true series and dates
+        y_true = y_true_arima
         dates = dates_arima
 
-    # Compute metrics
+        # Compute metrics
         metrics_arima = compute_all_metrics(y_true, y_arima)
         metrics_lstm  = compute_all_metrics(y_true, y_lstm)
 
-
-        print("=== Model Comparison Metrics ===")
-        print("ARIMA:")
+        # Print metrics nicely
+        print("ARIMA metrics:")
         for k, v in metrics_arima.items():
-                print(f"  {k}: {v:.6f}")
-                print("LSTM:")
-        for k, v in metrics_lstm.items():
-                print(f"  {k}: {v:.6f}")
+            print(f"  {k}: {v:.6f}")
 
-    # Plots
+        print("LSTM metrics:")
+        for k, v in metrics_lstm.items():
+            print(f"  {k}: {v:.6f}")
+
+        # Plots for this ticker
         plot_true_vs_pred(dates, y_true, y_arima, y_lstm)
         plot_residuals(dates, y_true, y_arima, y_lstm)
 
 
 if __name__ == "__main__":
     main()
+
 
