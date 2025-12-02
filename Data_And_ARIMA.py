@@ -80,38 +80,6 @@ class ARIMAFromScratch:
         self.sigma2_ = np.mean(eps**2)
         return self
 
-    def predict_in_sample_diff(self):
-        diff = self.diff_train_
-        p, q = self.p, self.q
-        c = self.params_[0]
-        phi = self.params_[1:1+p]
-        theta = self.params_[1+p:1+p+q]
-        n = len(diff)
-        max_lag = max(p, q)
-        eps = np.zeros(n)
-        y_hat = np.zeros(n)
-        for t in range(max_lag, n):
-            ar_part = sum(phi[i-1] * diff[t-i] for i in range(1, p+1)) if p > 0 else 0.0
-            ma_part = sum(theta[j-1] * eps[t-j] for j in range(1, q+1)) if q > 0 else 0.0
-            y_hat[t] = c + ar_part + ma_part
-            eps[t] = diff[t] - y_hat[t]
-        return y_hat, eps
-
-    def predict_levels_all(self):
-        if self.d != 1:
-            raise NotImplementedError
-        y = self.y_train_
-        n = len(y)
-        diff = self.diff_train_
-        y_hat_diff, _ = self.predict_in_sample_diff()  # len = n-1
-        pred = np.zeros(n)
-        pred[0] = y[0]
-        n_diff = len(diff)
-        for i in range(n_diff):
-            t = i + 1
-            pred[t] = y[t-1] + y_hat_diff[i]
-        return pred
-
     def forecast_diff(self, steps=1):
         if self.params_ is None:
             raise RuntimeError("Fit first")
@@ -156,6 +124,32 @@ class ARIMAFromScratch:
         last_values = self.y_train_[-1:]
         return invert_difference(last_values, diff_forecasts, d=1)
 
+    def predict_in_sample_levels(self):
+        if self.params_ is None:
+            raise RuntimeError("Fit first")
+        diff = self.diff_train_
+        p, q = self.p, self.q
+        c = self.params_[0]
+        phi = self.params_[1:1+p]
+        theta = self.params_[1+p:1+p+q]
+        n = len(diff)
+        max_lag = max(p, q)
+        eps = np.zeros(n)
+        y_hat_diff = np.zeros(n)
+        for t in range(max_lag, n):
+            ar_part = sum(phi[i-1] * diff[t-i] for i in range(1, p+1)) if p > 0 else 0.0
+            ma_part = sum(theta[j-1] * eps[t-j] for j in range(1, q+1)) if q > 0 else 0.0
+            y_hat_diff[t] = c + ar_part + ma_part
+            eps[t] = diff[t] - y_hat_diff[t]
+        diffs_for_recon = diff.copy()
+        diffs_for_recon[max_lag:] = y_hat_diff[max_lag:]
+        N = len(self.y_train_)
+        log_pred = np.zeros(N)
+        log_pred[0] = self.y_train_[0]
+        for t in range(1, N):
+            log_pred[t] = log_pred[t-1] + diffs_for_recon[t-1]
+        return log_pred
+
 def plot_acf_pacf_all():
     for ticker, path in TICKER_TO_FILE.items():
         df = load_stock_csv(path)
@@ -170,35 +164,29 @@ def plot_acf_pacf_all():
         plt.show()
 
 def get_arima_predictions():
-    """
-    Returns:
-        y_true : np.ndarray, shape (n,)
-        y_pred : np.ndarray, shape (n,)
-        dates  : np.ndarray, shape (n,)
-    """
     df = load_stock_csv(f"data/{TICKER}.csv")
     series_log = df["log_price"]
     series_price = df["ClosePrice"]
-    dates = series_price.index.to_numpy()
+    dates = df.index.to_numpy()
 
     n = len(series_log)
     train_size = int(n * 0.8)
-    test_size = n - train_size
 
-    train_log = series_log.iloc[:train_size]
+    train_series = series_log.iloc[:train_size]
+    test_len = n - train_size
 
     p, d, q = ARIMA_ORDER
-    model = ARIMAFromScratch(p, d, q).fit(train_log)
+    model = ARIMAFromScratch(p, d, q).fit(train_series)
 
-    # in-sample predictions for train
-    log_pred_train = model.predict_levels_all()  # len = train_size
-    price_pred_train = np.exp(log_pred_train)
+    log_pred_train = model.predict_in_sample_levels()
+    last_log_train = train_series.values[-1:]
+    model_full = model
+    model_full.y_train_ = train_series.values
+    model_full.diff_train_ = difference(train_series, d)
+    log_pred_test = model_full.forecast_levels(steps=test_len)
 
-    # forecasts for test
-    log_forecast_test = model.forecast_levels(steps=test_size)
-    price_pred_test = np.exp(log_forecast_test)
-
-    y_pred = np.concatenate([price_pred_train, price_pred_test])
+    log_pred_full = np.concatenate([log_pred_train, log_pred_test])
+    y_pred = np.exp(log_pred_full)
     y_true = series_price.values
 
     return y_true, y_pred, dates
@@ -206,4 +194,4 @@ def get_arima_predictions():
 if __name__ == "__main__":
     # example usage
     y_true, y_pred, dates = get_arima_predictions()
-    print("Total points:", len(dates))
+    print("Total points:", len(y_pred))
