@@ -4,7 +4,6 @@ import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
 
-# -------- config --------
 TICKER_TO_FILE = {
     "AAPL": "data/AAPL.csv",
     "AMZN": "data/AMZN.csv",
@@ -15,7 +14,6 @@ TICKER_TO_FILE = {
 TICKER = "AAPL"
 ARIMA_ORDER = (1, 1, 1)
 
-# -------- data loading --------
 def load_stock_csv(path):
     df = pd.read_csv(path)
     meta_mask = df["Price"].isin(["Ticker", "Date"])
@@ -27,7 +25,6 @@ def load_stock_csv(path):
     df["log_price"] = np.log(df["ClosePrice"])
     return df
 
-# -------- helpers --------
 def difference(series, d=1):
     y = series.copy()
     for _ in range(d):
@@ -62,7 +59,6 @@ def arma_loss(params, y, p, q):
     eps = arma_residuals(params, y, p, q)
     return np.sum(eps**2)
 
-# -------- ARIMA class --------
 class ARIMAFromScratch:
     def __init__(self, p, d, q):
         self.p, self.d, self.q = p, d, q
@@ -83,6 +79,38 @@ class ARIMAFromScratch:
         eps = arma_residuals(self.params_, diff, p, q)
         self.sigma2_ = np.mean(eps**2)
         return self
+
+    def predict_in_sample_diff(self):
+        diff = self.diff_train_
+        p, q = self.p, self.q
+        c = self.params_[0]
+        phi = self.params_[1:1+p]
+        theta = self.params_[1+p:1+p+q]
+        n = len(diff)
+        max_lag = max(p, q)
+        eps = np.zeros(n)
+        y_hat = np.zeros(n)
+        for t in range(max_lag, n):
+            ar_part = sum(phi[i-1] * diff[t-i] for i in range(1, p+1)) if p > 0 else 0.0
+            ma_part = sum(theta[j-1] * eps[t-j] for j in range(1, q+1)) if q > 0 else 0.0
+            y_hat[t] = c + ar_part + ma_part
+            eps[t] = diff[t] - y_hat[t]
+        return y_hat, eps
+
+    def predict_levels_all(self):
+        if self.d != 1:
+            raise NotImplementedError
+        y = self.y_train_
+        n = len(y)
+        diff = self.diff_train_
+        y_hat_diff, _ = self.predict_in_sample_diff()  # len = n-1
+        pred = np.zeros(n)
+        pred[0] = y[0]
+        n_diff = len(diff)
+        for i in range(n_diff):
+            t = i + 1
+            pred[t] = y[t-1] + y_hat_diff[i]
+        return pred
 
     def forecast_diff(self, steps=1):
         if self.params_ is None:
@@ -128,7 +156,6 @@ class ARIMAFromScratch:
         last_values = self.y_train_[-1:]
         return invert_difference(last_values, diff_forecasts, d=1)
 
-# -------- ACF/PACF for all tickers --------
 def plot_acf_pacf_all():
     for ticker, path in TICKER_TO_FILE.items():
         df = load_stock_csv(path)
@@ -142,42 +169,41 @@ def plot_acf_pacf_all():
         plt.tight_layout()
         plt.show()
 
-def get_arima_predictions(ticker=None):
-    if ticker is None:
-        ticker = TICKER
-    df = load_stock_csv(TICKER_TO_FILE[ticker])
+def get_arima_predictions():
+    """
+    Returns:
+        y_true : np.ndarray, shape (n,)
+        y_pred : np.ndarray, shape (n,)
+        dates  : np.ndarray, shape (n,)
+    """
+    df = load_stock_csv(f"data/{TICKER}.csv")
     series_log = df["log_price"]
     series_price = df["ClosePrice"]
+    dates = series_price.index.to_numpy()
+
     n = len(series_log)
     train_size = int(n * 0.8)
-    train_series = series_log.iloc[:train_size]
-    test_price = series_price.iloc[train_size:]
-    dates = test_price.index.to_numpy()
+    test_size = n - train_size
+
+    train_log = series_log.iloc[:train_size]
+
     p, d, q = ARIMA_ORDER
-    model = ARIMAFromScratch(p, d, q).fit(train_series)
-    steps = len(test_price)
-    log_forecast = model.forecast_levels(steps=steps)
-    y_pred = np.exp(log_forecast)
-    y_true = test_price.values
+    model = ARIMAFromScratch(p, d, q).fit(train_log)
+
+    # in-sample predictions for train
+    log_pred_train = model.predict_levels_all()  # len = train_size
+    price_pred_train = np.exp(log_pred_train)
+
+    # forecasts for test
+    log_forecast_test = model.forecast_levels(steps=test_size)
+    price_pred_test = np.exp(log_forecast_test)
+
+    y_pred = np.concatenate([price_pred_train, price_pred_test])
+    y_true = series_price.values
+
     return y_true, y_pred, dates
 
-def plot_predictions_for_ticker(ticker=None):
-    if ticker is None:
-        ticker = TICKER
-    y_true, y_pred, dates = get_arima_predictions(ticker)
-    plt.figure(figsize=(10, 4))
-    plt.plot(dates, y_true, label="Actual")
-    plt.plot(dates, y_pred, label="ARIMA", linestyle="--")
-    plt.title(f"{ticker} – Actual vs ARIMA prediction")
-    plt.xlabel("Date")
-    plt.ylabel("Price")
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
-
 if __name__ == "__main__":
-    # run this once to generate ACF/PACF plots for all tickers
-    plot_acf_pacf_all()
-    plot_predictions_for_ticker("AAPL")
-    # example: get predictions for current TICKER
-    # y_true, y_pred, dates = get_arima_predictions()
+    # example usage
+    y_true, y_pred, dates = get_arima_predictions()
+    print("Total points:", len(dates))
