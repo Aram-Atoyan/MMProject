@@ -135,51 +135,26 @@ def get_lstm_predictions(ticker: str = "AAPL", min_history: int = 4):
     """
     Train an LSTM for one ticker and generate next-step predictions.
 
-    Core idea (teacher forcing, only REAL data as input):
-
-    Given real prices y[0], y[1], ..., y[N-1], we build:
-        X_seq = [y[0], ..., y[N-2]]  (inputs)
-        y_seq = [y[1], ..., y[N-1]]  (targets)
-
-    At time index j in X_seq, the LSTM has processed y[0..j] (all real values
-    up to that point) and is trained to output an estimate of y[j+1].
-
-    We NEVER feed the model's own predictions back into the input sequence.
-    All inputs during training and prediction are real observed values.
-
-    Returns:
-        dates  : np.ndarray of length N
-        y_true : np.ndarray of real prices, length N
-        y_pred : np.ndarray of predicted prices, length N
-                 with y_pred[0..min_history-1] = NaN
+    Now:
+      - y_pred[0 : min_history] are just the real values y_true[0 : min_history]
+      - y_pred[min_history :] are LSTM predictions
     """
     dates, y_true = read_stock_series(ticker)
     N = len(y_true)
 
-    #  We need at least one point after min_history to have something
-    #  to predict. SO Min_history should be >= 5 for at least
-    #  one prediction. Otherwise, there is no future step to forecast.
     if N <= min_history:
         raise ValueError(f"Not enough data points for {ticker} with min_history={min_history}.")
 
-    # Scale prices to [0, 1] for stable neural network training
+    # Scale prices
     scaler = skpre.MinMaxScaler()
     y_scaled = scaler.fit_transform(y_true.reshape(-1, 1))  # shape: (N, 1)
 
-    # Build teacher-forcing sequences:
-    # Input: all but last point
-    # Target: all but first point (shifted by 1)
-
-    # batch_size = 1 (just one sequence),
-    # timesteps = N-1 (because we dropped one point for input and one for target),
-    # features = 1 (we only feed the close price, no extra indicators).
-    # So the model learns given all values up to j, predict j+1.
-    X_seq = y_scaled[:-1].reshape(1, N - 1, 1)
-    y_seq = y_scaled[1:].reshape(1, N - 1, 1)
+    # Teacher-forcing sequences
+    X_seq = y_scaled[:-1].reshape(1, N - 1, 1)  # input: y[0..N-2]
+    y_seq = y_scaled[1:].reshape(1, N - 1, 1)   # target: y[1..N-1]
 
     model = build_lstm_model()
 
-    # Early stopping to avoid over-training and to keep the best model
     early_stop = tf.keras.callbacks.EarlyStopping(
         monitor="loss",
         patience=20,
@@ -187,12 +162,6 @@ def get_lstm_predictions(ticker: str = "AAPL", min_history: int = 4):
         verbose=0
     )
 
-    # Train the model on the full single sequence
-    # 500 is just a theoretical upper bound. In practice, training
-    #  will typically stop earlier due to early_stop. Using batch_size=1 means
-    #  we treat this as one long time-series sample. The recurrent state flows
-    #  through the whole sequence, so the model can, in principle, use very
-    #  long-term patterns, not just the last few steps.
     model.fit(
         X_seq,
         y_seq,
@@ -204,18 +173,18 @@ def get_lstm_predictions(ticker: str = "AAPL", min_history: int = 4):
 
     # Predict next-step values for each timestep in the input sequence
     pred_scaled = model.predict(X_seq, verbose=0)[0, :, 0]  # shape: (N-1,)
-
-    # Convert scaled predictions back to original price scale
     pred_unscaled = scaler.inverse_transform(pred_scaled.reshape(-1, 1)).flatten()
 
-    #  We want y_pred to have the same length and indexing as y_true.
-    #  However, we don't produce predictions for the very first few points,
-    #  because there is not enough history to justify them. Those positions
-    #  remain NaN and can be ignored later when computing metrics.
-    y_pred = np.full(N, np.nan, dtype=float)
+    # Allocate prediction array the same length as y_true
+    y_pred = np.empty_like(y_true, dtype=float)
 
+    # 1) First min_history points = real values (no NaNs anymore)
+    y_pred[:min_history] = y_true[:min_history]
+
+    # 2) From min_history onward use predictions
+    #    pred_unscaled[k] is the model's estimate of y_true[k+1]
     for t in range(min_history, N):
-        # For index t, use prediction that was trained as "predict y[t]".
+        # we want prediction for y_true[t], which is pred_unscal
         y_pred[t] = pred_unscaled[t - 1]
 
     return dates, y_true, y_pred
@@ -266,3 +235,4 @@ if __name__ == "__main__":
 
     # Run prediction pipeline for all tickers
     all_results = run_predictions_for_tickers(tickers, min_history=4)
+
