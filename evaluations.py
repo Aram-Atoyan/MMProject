@@ -40,14 +40,14 @@ def compute_all_metrics(y_true, y_pred):
     }
 
 
-def plot_true_vs_pred(dates, y_true, y_arima, y_lstm):
+def plot_true_vs_pred(dates, y_true, y_arima, y_lstm,ticker):
     plt.figure(figsize=(12, 5))
     plt.plot(dates, y_true, label="True", linewidth=2)
     plt.plot(dates, y_arima, label="ARIMA", alpha=0.7)
     plt.plot(dates, y_lstm, label="LSTM", alpha=0.7)
     plt.xlabel("Time")
     plt.ylabel("Value")
-    plt.title("True vs Predicted – Test Set")
+    plt.title("True vs Predicted – "+ticker)
     plt.legend()
     plt.tight_layout()
     plt.show()
@@ -115,7 +115,7 @@ def main():
             print(f"  {k}: {v:.6f}")
 
         # Plots for this ticker
-        plot_true_vs_pred(dates, y_true, y_arima, y_lstm)
+        plot_true_vs_pred(dates, y_true, y_arima, y_lstm,ticker)
         plot_residuals(dates, y_true, y_arima, y_lstm)
 
 

@@ -11,7 +11,7 @@ TICKER_TO_FILE = {
     "MSFT": "data/MSFT.csv",
     "TSLA": "data/TSLA.csv",
 }
-ARIMA_ORDER = (1, 1, 1)
+ARIMA_ORDER = (1, 1, 1 )
 
 def load_stock_csv(path):
     df = pd.read_csv(path)
