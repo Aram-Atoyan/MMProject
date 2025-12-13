@@ -4,6 +4,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 from scipy.optimize import minimize
 from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+from data_loading import load_series, TICKER_TO_FILE
 
 
 
@@ -154,21 +155,55 @@ class ARIMAFromScratch:
             log_pred[t] = log_pred[t-1] + diffs_for_recon[t-1]
         return log_pred
 
-def plot_acf_pacf_all(tickers=None):
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from statsmodels.graphics.tsaplots import plot_acf, plot_pacf
+
+from data_loading import load_series, TICKER_TO_FILE  # or data_utils, match your filename
+
+
+def plot_acf_pacf_all(tickers=None, years=5, n_weeks=262, lags=20):
+    """
+    Plot ACF/PACF of differenced log prices for each ticker.
+
+    Uses data_loading.load_series() so it works for:
+      - default CSV tickers (if CSV exists)
+      - any other ticker via yfinance -> weekly avg -> last n_weeks
+
+    Parameters:
+        tickers : list[str] or None
+        years   : int, yfinance lookback for custom tickers
+        n_weeks : int, number of weekly points
+        lags    : int, number of lags for ACF/PACF
+    """
     if tickers is None:
         tickers = list(TICKER_TO_FILE.keys())
 
     for ticker in tickers:
-        path = _resolve_csv_path(ticker)
-        df = load_stock_csv(path)
-        diff = df["log_price"].diff().dropna()
+        t = str(ticker).strip().upper()
+
+        # Load once using unified loader
+        dates, y_true = load_series(t, n_weeks=n_weeks, years=years)
+
+        # Build log-price and difference
+        log_price = np.log(np.asarray(y_true, dtype=float))
+        diff = np.diff(log_price)  # 1st difference
+        diff = pd.Series(diff)     # statsmodels likes Series
+
+        if len(diff) < max(10, lags + 1):
+            print(f"[{t}] Skipping ACF/PACF: not enough points after differencing (len={len(diff)})")
+            continue
 
         fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-        plot_acf(diff, lags=20, ax=axes[0])
-        axes[0].set_title(f"{ticker} ACF")
-        plot_pacf(diff, lags=20, ax=axes[1], method="ywm")
-        axes[1].set_title(f"{ticker} PACF")
-        fig.suptitle(f"{ticker} differenced log price")
+
+        plot_acf(diff, lags=lags, ax=axes[0])
+        axes[0].set_title(f"{t} ACF")
+
+        plot_pacf(diff, lags=lags, ax=axes[1], method="ywm")
+        axes[1].set_title(f"{t} PACF")
+
+        fig.suptitle(f"{t} differenced log price (weekly avg, last {n_weeks} points)")
         plt.tight_layout()
         plt.show()
 
