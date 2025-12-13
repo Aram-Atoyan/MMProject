@@ -1,21 +1,15 @@
-import os  # standard library for OS-related operations
+import os
 
-# hides INFO and WARNING messages from the low-level runtime, but still
-# allows real errors to appear. That’s why after this line you see fewer TF logs.)
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 
-import logging          # to control TensorFlow's Python-level log verbosity
-import numpy as np      # numerical arrays, math operations, random numbers
-import pandas as pd     # reading CSV files and simple data manipulation
-import sklearn.preprocessing as skpre  # scaling utilities (we use MinMaxScaler)
-import tensorflow as tf  # main deep learning framework (Keras is included via tf.keras)
+import logging
+import numpy as np
+import pandas as pd
+import sklearn.preprocessing as skpre
+import tensorflow as tf
 
-# Reduce high-level TensorFlow Python warnings
 tf.get_logger().setLevel(logging.ERROR)
 
-# setting seeds makes random processes like weight initialization and
-# random shuffling more consistent between runs. It does not guarantee perfect
-# determinism on all hardware, but it significantly reduces variability.
 np.random.seed(42)
 tf.random.set_seed(42)
 
@@ -57,11 +51,6 @@ def read_stock_series(ticker: str):
     # Convert second column (price strings) to floats
     real_vals = pd.to_numeric(data.iloc[:, 1].values, errors="coerce").astype(float)
 
-    # Remove rows where the price is NaN to keep data clean and aligned
-    # if there are malformed rows, empty cells, or weird values,
-    # Removing them here ensures that both dates and real_vals arrays have the same length and contain
-    #  only valid values. This is important for training and for printing
-    #  pairs (date, real, pred) later.
     mask = ~np.isnan(real_vals)
     dates = dates[mask]
     real_vals = real_vals[mask]
@@ -131,27 +120,46 @@ def build_lstm_model():
     return model
 
 
-def get_lstm_predictions(ticker: str = "AAPL", min_history: int = 4):
+def get_lstm_predictions(
+    ticker: str,
+    dates,
+    y_true,
+    min_history: int = 4
+):
     """
-    Train an LSTM for one ticker and generate next-step predictions.
+    LSTM next-step predictions for a given ticker using externally provided data.
 
-    Now:
-      - y_pred[0 : min_history] are just the real values y_true[0 : min_history]
-      - y_pred[min_history :] are LSTM predictions
+    IMPORTANT: This function does NOT load data internally.
+    You must pass:
+        dates : array-like of datetime64 / datetime objects (length N)
+        y_true: array-like of floats (Close prices) (length N)
+
+    Returns:
+        y_true (np.ndarray), y_pred (np.ndarray), dates (np.ndarray)
     """
-    dates, y_true = read_stock_series(ticker)
+    if dates is None or y_true is None:
+        raise ValueError("get_lstm_predictions requires dates and y_true (no internal loading).")
+
+    t = str(ticker).strip().upper()
+    dates = np.asarray(dates)
+    y_true = np.asarray(y_true, dtype=float)
+
+    if len(dates) != len(y_true):
+        raise ValueError(f"[{t}] dates and y_true lengths differ: {len(dates)} vs {len(y_true)}")
+
     N = len(y_true)
-
     if N <= min_history:
-        raise ValueError(f"Not enough data points for {ticker} with min_history={min_history}.")
+        raise ValueError(f"[{t}] Not enough data points (got {N}) for min_history={min_history}.")
 
     # Scale prices
     scaler = skpre.MinMaxScaler()
-    y_scaled = scaler.fit_transform(y_true.reshape(-1, 1))  # shape: (N, 1)
+    y_scaled = scaler.fit_transform(y_true.reshape(-1, 1))  # (N, 1)
 
-    # Teacher-forcing sequences
-    X_seq = y_scaled[:-1].reshape(1, N - 1, 1)  # input: y[0..N-2]
-    y_seq = y_scaled[1:].reshape(1, N - 1, 1)   # target: y[1..N-1]
+    # Teacher forcing sequences:
+    # input:  y[0..N-2]
+    # target: y[1..N-1]
+    X_seq = y_scaled[:-1].reshape(1, N - 1, 1)  # (1, N-1, 1)
+    y_seq = y_scaled[1:].reshape(1, N - 1, 1)   # (1, N-1, 1)
 
     model = build_lstm_model()
 
@@ -171,23 +179,22 @@ def get_lstm_predictions(ticker: str = "AAPL", min_history: int = 4):
         callbacks=[early_stop]
     )
 
-    # Predict next-step values for each timestep in the input sequence
-    pred_scaled = model.predict(X_seq, verbose=0)[0, :, 0]  # shape: (N-1,)
+    # Predict next-step values for each timestep
+    pred_scaled = model.predict(X_seq, verbose=0)[0, :, 0]  # (N-1,)
     pred_unscaled = scaler.inverse_transform(pred_scaled.reshape(-1, 1)).flatten()
 
-    # Allocate prediction array the same length as y_true
+    # Build full-length prediction array
     y_pred = np.empty_like(y_true, dtype=float)
 
-    # 1) First min_history points = real values (no NaNs anymore)
+    # First min_history points = real values
     y_pred[:min_history] = y_true[:min_history]
 
-    # 2) From min_history onward use predictions
-    #    pred_unscaled[k] is the model's estimate of y_true[k+1]
-    for t in range(min_history, N):
-        # we want prediction for y_true[t], which is pred_unscal
-        y_pred[t] = pred_unscaled[t - 1]
+    # For t >= min_history:
+    # pred_unscaled[k] corresponds to prediction for y_true[k+1]
+    for i in range(min_history, N):
+        y_pred[i] = pred_unscaled[i - 1]
 
-    return  y_true, y_pred, dates
+    return y_true, y_pred, dates
 
 
 
@@ -229,10 +236,4 @@ def run_predictions_for_tickers(tickers, min_history=4):
     return results_dict
 
 
-if __name__ == "__main__":
-    # List of tickers you want to run the LSTM prediction on
-    tickers = ["AAPL", "AMZN", "GOOGL", "MSFT", "TSLA"]
-
-    # Run prediction pipeline for all tickers
-    all_results = run_predictions_for_tickers(tickers, min_history=4)
 
